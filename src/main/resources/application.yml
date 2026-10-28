@@ -1,0 +1,68 @@
+spring:
+  application:
+    name: product-activation-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/activation}
+    username: ${SPRING_DATASOURCE_USERNAME:activation}
+    password: ${SPRING_DATASOURCE_PASSWORD:activation}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:9999/issuer}
+server:
+  port: 8080
+provider:
+  base-url: ${PROVIDER_BASE_URL:http://localhost:8090}
+  connect-timeout: ${PROVIDER_CONNECT_TIMEOUT:2s}
+  read-timeout: ${PROVIDER_READ_TIMEOUT:3s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
+
+outbox:
+  poll-interval: ${OUTBOX_POLL_INTERVAL:1000}
+  lease-duration: ${OUTBOX_LEASE_DURATION:60s}
+  max-delivery-attempts: ${OUTBOX_MAX_DELIVERY_ATTEMPTS:10}
+  circuit-open-retry-delay: ${OUTBOX_CIRCUIT_OPEN_RETRY_DELAY:11s}
+
+resilience4j:
+  retry:
+    instances:
+      productProvider:
+        max-attempts: 3 # inclui a chamada inicial
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        max-interval: 5s
+        retry-exceptions:
+          - br.com.example.activation.provider.TemporaryProviderFailureException
+  circuitbreaker:
+    instances:
+      productProvider:
+        register-health-indicator: false
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - br.com.example.activation.provider.TemporaryProviderFailureException
