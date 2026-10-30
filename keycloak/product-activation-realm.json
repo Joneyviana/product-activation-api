@@ -1,0 +1,34 @@
+
+{
+  "realm": "product-activation",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "activation-api",
+      "name": "Activation API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "dev-test",
+      "enabled": true,
+      "firstName": "Dev",
+      "lastName": "Test",
+      "email": "dev-test@example.com",
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-test",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

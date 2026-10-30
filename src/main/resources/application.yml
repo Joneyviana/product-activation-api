@@ -19,7 +19,8 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${JWT_ISSUER_URI:http://localhost:9999/issuer}
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8000/realms/product-activation}
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://keycloak:8080/realms/product-activation/protocol/openid-connect/certs}
 server:
   port: 8080
 provider:

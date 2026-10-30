@@ -1,4 +1,15 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8000:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/product-activation-realm.json:/opt/keycloak/data/import/product-activation-realm.json:ro
   postgres:
     image: postgres:16-alpine
     environment:
@@ -16,7 +27,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -30,3 +43,4 @@ services:
 
 volumes:
   postgres_data:
+  keycloak_data:
