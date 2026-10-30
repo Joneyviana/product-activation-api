@@ -1,4 +1,4 @@
-# Product Activation API — versão 4
+# Product Activation API
 
 API REST para registrar e consultar solicitações de ativação de produtos, com Transactional Outbox, processamento assíncrono e resiliência via anotações do Resilience4j.
 
@@ -6,6 +6,7 @@ API REST para registrar e consultar solicitações de ativação de produtos, co
 
 - Java 21, Spring Boot 3.5, Spring MVC e Spring Data JPA
 - PostgreSQL 16 e Flyway
+- Keycloak e OAuth2 Resource Server (JWT)
 - Resilience4j `@Retry` + `@CircuitBreaker`
 - JUnit 5, Mockito, Docker Compose e GitHub Actions
 
@@ -25,7 +26,40 @@ Validar build e testes:
 mvn verify
 ```
 
-O projeto está configurado como OAuth2 Resource Server. Configure `JWT_ISSUER_URI` para um emissor JWT real antes de chamar os endpoints autenticados; o Compose não inicia um servidor de identidade.
+## Autenticação
+
+A API está configurada como OAuth2 Resource Server e valida JWTs emitidos pelo Keycloak.
+
+No ambiente local, considerando o mapeamento de portas `8000:8080` do serviço Keycloak no Docker Compose, o emissor é:
+
+```text
+http://localhost:8000/realms/product-activation
+```
+
+Configuração correspondente no `application.yml`:
+
+```yaml
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8000/realms/product-activation}
+```
+
+O realm `product-activation` é importado a partir de `keycloak/product-activation-realm.json`, caso ainda não exista no armazenamento do Keycloak.
+
+Credenciais de desenvolvimento local:
+
+| Configuração | Valor |
+|---|---|
+| Realm | `product-activation` |
+| Client ID | `activation-api` |
+| Username | `dev-test` |
+| Password | `dev-test` |
+| Keycloak Admin Console | `http://localhost:8000/admin` |
+
+Essas credenciais e o fluxo de senha usados pelos scripts são exclusivamente para desenvolvimento local. Para aplicações interativas, prefira Authorization Code com PKCE.
 
 ## Endpoints
 
@@ -52,6 +86,148 @@ A primeira criação retorna `201 Created`, com status inicial `PENDING`. A API 
 `GET /api/v1/requests?status=PENDING&customerId=CUST-10001&page=0&size=20`
 
 Filtros opcionais; página a partir de zero e tamanho entre 1 e 100.
+
+## Testes da API com Shell Scripts
+
+A pasta `product-activation-curl-tests/` contém scripts Shell para obter um token no Keycloak e executar chamadas autenticadas à API usando `curl`.
+
+### Estrutura
+
+```text
+product-activation-curl-tests/
+├── 01-get-token.sh
+├── 02-test-api.sh
+├── run-tests.sh
+├── requests/
+│   ├── request-success.json
+│   ├── request-temporary-failure.json
+│   ├── request-permanent-failure.json
+│   └── request-idempotency-conflict.json
+```
+
+### Requisitos
+
+- Bash
+- `curl`
+- `jq`
+- Keycloak em execução
+- Product Activation API em execução
+
+### Configurações padrão dos scripts
+
+| Variável | Padrão |
+|---|---|
+| `KEYCLOAK_URL` | `http://localhost:8000` |
+| `REALM` | `product-activation` |
+| `CLIENT_ID` | `activation-api` |
+| `USERNAME` | `dev-test` |
+| `PASSWORD` | `dev-test` |
+| `API_BASE_URL` | `http://localhost:8081` |
+| `REQUESTS_PATH` | `/api/v1/requests` |
+| `TOKEN_FILE` | `.access_token` |
+
+**Atenção:** a API principal deste README está documentada na porta `8080`, mas o script `02-test-api.sh` usa `8081` como padrão. Ao executar os testes com a configuração padrão do projeto, informe `API_BASE_URL=http://localhost:8080`.
+
+### Cenários disponíveis
+
+Os payloads ficam prontos na pasta `requests/`:
+
+| Arquivo | Cenário | Resultado esperado |
+|---|---|---|
+| `request-success.json` | Ativação com sucesso | Solicitação inicialmente `PENDING` e, após processamento, conclusão com sucesso |
+| `request-temporary-failure.json` | Falha temporária (`productCode` terminado em `-TEMP`) | Retentativas entre ciclos; ao atingir o limite, solicitação `FAILED` e evento `DEAD` |
+| `request-permanent-failure.json` | Falha permanente (`productCode` terminado em `-FAIL`) | Solicitação `FAILED`, sem retentativas para a falha permanente |
+| `request-idempotency-conflict.json` | Mesmo `externalId` do cenário de sucesso, mas com payload diferente | `409 Conflict`, se executado depois de `request-success.json` |
+
+Cada solicitação usa um `externalId` próprio, exceto o cenário de conflito, que reutiliza intencionalmente o `externalId` do cenário de sucesso.
+
+### Obter um token
+
+A partir da pasta `product-activation-curl-tests/`, execute:
+
+```bash
+chmod +x *.sh
+./01-get-token.sh
+```
+
+O script solicita um token ao endpoint:
+
+```text
+POST /realms/product-activation/protocol/openid-connect/token
+```
+
+O token é armazenado no arquivo `.access_token`, criado com permissões restritas. Não versione esse arquivo.
+
+### Executar um cenário
+
+Para obter o token e enviar uma solicitação em uma única execução, informe o payload desejado em `REQUEST_BODY_FILE`.
+
+Exemplo — sucesso:
+
+```bash
+API_BASE_URL=http://localhost:8080 \
+REQUEST_BODY_FILE=./requests/request-success.json \
+./run-tests.sh
+```
+
+Falha temporária:
+
+```bash
+API_BASE_URL=http://localhost:8080 \
+REQUEST_BODY_FILE=./requests/request-temporary-failure.json \
+./run-tests.sh
+```
+
+Falha permanente:
+
+```bash
+API_BASE_URL=http://localhost:8080 \
+REQUEST_BODY_FILE=./requests/request-permanent-failure.json \
+./run-tests.sh
+```
+
+Conflito de idempotência:
+
+```bash
+API_BASE_URL=http://localhost:8080 \
+REQUEST_BODY_FILE=./requests/request-idempotency-conflict.json \
+./run-tests.sh
+```
+
+Para o cenário de conflito, execute primeiro o cenário de sucesso. O primeiro request cria `EXT-SUCCESS-001`; o cenário de conflito reutiliza esse identificador com outro `productCode`.
+
+O `POST` retorna o estado inicial da solicitação. Para observar o resultado do processamento assíncrono, consulte a solicitação pelo endpoint `GET /api/v1/requests/{id}` usando o identificador retornado pela criação.
+
+### Executar somente a chamada à API
+
+Depois de gerar o token com `./01-get-token.sh`, também é possível executar apenas o POST:
+
+```bash
+API_BASE_URL=http://localhost:8080 \
+REQUEST_BODY_FILE=./requests/request-success.json \
+./02-test-api.sh
+```
+
+### Personalizar configurações
+
+As variáveis de ambiente permitem alterar URLs e credenciais sem editar os scripts:
+
+```bash
+KEYCLOAK_URL=http://localhost:8000 \
+API_BASE_URL=http://localhost:8080 \
+USERNAME=dev-test \
+PASSWORD=dev-test \
+REQUEST_BODY_FILE=./requests/request-success.json \
+./run-tests.sh
+```
+
+### Observações de segurança e execução
+
+- O fluxo `grant_type=password` (Direct Access Grants) é usado apenas para testes locais. Para aplicações interativas, prefira Authorization Code com PKCE.
+- O arquivo `.access_token` contém um token de acesso e não deve ser versionado.
+- Os scripts usam `localhost` porque são executados na máquina host. Se a API ou o Keycloak forem acessados de dentro de outro container, ajuste os endereços para os nomes dos serviços na rede Docker.
+- O valor do `issuer-uri` configurado na API precisa corresponder exatamente ao claim `iss` do token emitido pelo Keycloak.
+- Os payloads de exemplo correspondem ao contrato documentado para `POST /api/v1/requests`; ajuste-os se o DTO da aplicação mudar.
 
 ## Transactional Outbox
 
@@ -93,6 +269,7 @@ Os valores são iniciais e devem ser ajustados com métricas e SLOs. As retentat
 ## Mock local
 
 O perfil `mock-provider` é habilitado pelo Docker Compose:
+
 - `productCode` terminado em `-TEMP`: falha transitória em todas as tentativas.
 - `productCode` terminado em `-FAIL`: falha permanente.
 - Outros códigos: sucesso.
@@ -117,4 +294,4 @@ Para testar os ciclos persistentes, consulte o status da solicitação após o w
 
 ## Uso de IA
 
-Antes da entrega, revise o código, execute os testes e registre as ferramentas e usos de IA efetivamente utilizados.
+Todo o projeto foi desenvolvido com o auxílio do ChatGPT, utilizado como ferramenta de apoio durante as etapas de desenvolvimento.
