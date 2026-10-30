@@ -295,3 +295,48 @@ Para testar os ciclos persistentes, consulte o status da solicitação após o w
 ## Uso de IA
 
 Todo o projeto foi desenvolvido com o auxílio do ChatGPT, utilizado como ferramenta de apoio durante as etapas de desenvolvimento.
+
+
+## Investigação de lentidão em produção
+
+**1. O que investigaria primeiro?**
+
+Começaria comparando as métricas atuais com o comportamento anterior, identificando quais endpoints foram mais afetados e em que momento a degradação começou. Também verificaria se houve deploy, alteração de configuração ou aumento no volume de requisições.
+
+**2. Como identificaria se o problema está na aplicação, no banco ou na integração externa?**
+
+Utilizaria métricas de latência distribuídas por etapa da requisição, além de tracing distribuído para identificar onde o tempo está sendo consumido.
+
+- **Aplicação:** analisaria threads, pools de conexão, bloqueios e possíveis gargalos de processamento.
+- **Banco:** verificaria consultas lentas, planos de execução, índices, locks e saturação do pool de conexões.
+- **Integração externa:** analisaria o tempo de resposta, timeouts, erros e disponibilidade do serviço.
+
+**3. Quais logs ou métricas seriam úteis?**
+
+- Latência da API (p50, p95 e p99).
+- Taxa de requisições e erros (RPS e error rate).
+- Uso de CPU, memória e threads.
+- Tempo de execução das consultas SQL.
+- Métricas do pool de conexões do banco.
+- Tempo de resposta e taxa de falhas das integrações externas.
+- Logs estruturados com correlation ID e traces distribuídos.
+
+Utilizaria ferramentas como Prometheus, Grafana, OpenTelemetry e logs centralizados.
+
+**4. Que tipo de melhoria poderia ser considerada?**
+
+Dependendo da causa identificada, consideraria otimização de consultas e índices, ajustes nos pools de conexão e threads, cache para dados frequentemente acessados e execução assíncrona de operações que não precisam bloquear a resposta da API.
+
+Para integrações externas, avaliaria timeouts adequados, circuit breaker, retry com backoff e limites de concorrência.
+
+**5. Os três sintomas podem ter uma causa comum?**
+
+Sim. Uma hipótese seria a degradação do serviço externo, aumentando o tempo durante o qual as threads da aplicação ficam bloqueadas aguardando respostas. Isso pode gerar acúmulo de requisições, saturação do pool de threads ou de conexões com o banco e aumento da latência geral.
+
+Confirmaria essa hipótese utilizando tracing distribuído, thread dumps e métricas dos pools, verificando se o aumento da latência coincide com as chamadas externas mais lentas.
+
+**6. Como validaria que a correção funcionou depois de publicada?**
+
+Acompanharia as métricas antes e depois do deploy, comparando principalmente p95 e p99 de latência, taxa de erros, tempo das consultas e respostas das integrações externas.
+
+Também faria testes de carga e acompanharia o comportamento da aplicação durante um período de observação, garantindo que a melhoria não tenha introduzido novos gargalos.
